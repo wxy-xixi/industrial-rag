@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>工业知识库RAG系统</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- 侧边栏 -->
+        <div class="sidebar">
+            <div class="logo">
+                <h2>🏭 工业知识库</h2>
+                <p>RAG智能问答系统</p>
+            </div>
+            
+            <div class="upload-section">
+                <h3>📄 文档上传</h3>
+                <div class="upload-box" id="uploadBox">
+                    <input type="file" id="fileInput" accept=".pdf,.docx,.txt" hidden>
+                    <p>点击或拖拽上传</p>
+                    <span>支持 PDF、DOCX、TXT</span>
+                </div>
+                <div class="upload-progress" id="uploadProgress" style="display:none;">
+                    <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+                    <p id="uploadStatus">上传中...</p>
+                </div>
+            </div>
+            
+            <div class="doc-list">
+                <h3>📚 已上传文档</h3>
+                <div id="docList"><p class="empty-tip">暂无文档</p></div>
+            </div>
+        </div>
+        
+        <!-- 主内容区 -->
+        <div class="main">
+            <div class="chat-header">
+                <h2>💬 智能问答</h2>
+                <span>基于RAG检索增强生成</span>
+            </div>
+            
+            <div class="chat-messages" id="chatMessages">
+                <div class="welcome-msg">
+                    <h3>👋 欢迎使用工业知识库RAG系统</h3>
+                    <p>请先上传文档，然后输入问题进行智能问答</p>
+                    <div class="tips">
+                        <div class="tip-item">1️⃣ 上传工业文档（PDF/DOCX/TXT）</div>
+                        <div class="tip-item">2️⃣ 系统自动解析并建立向量索引</div>
+                        <div class="tip-item">3️⃣ 输入问题，AI基于文档内容回答</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="chat-input">
+                <div class="input-wrapper">
+                    <textarea id="questionInput" placeholder="请输入您的问题..." rows="1"></textarea>
+                    <button id="sendBtn" onclick="sendQuestion()">发送</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="app.js"></script>
+</body>
+</html>
