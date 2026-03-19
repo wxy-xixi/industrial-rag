@@ -4,6 +4,9 @@ __pycache__/
 *.pyc
 .DS_Store
 uploads/
+backend/uploads/
+backend/chat_images/
+backend/vector_store/
 *.db
 node_modules/
 .env

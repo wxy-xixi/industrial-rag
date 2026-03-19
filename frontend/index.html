@@ -18,19 +18,39 @@
             <div class="upload-section">
                 <h3>📄 文档上传</h3>
                 <div class="upload-box" id="uploadBox">
-                    <input type="file" id="fileInput" accept=".pdf,.docx,.txt" hidden>
+                    <input type="file" id="fileInput" accept=".pdf,.docx,.txt,.png,.jpg,.jpeg,.bmp,.webp" hidden>
                     <p>点击或拖拽上传</p>
-                    <span>支持 PDF、DOCX、TXT</span>
+                    <span>支持 PDF、DOCX、TXT、PNG、JPG、WEBP</span>
                 </div>
                 <div class="upload-progress" id="uploadProgress" style="display:none;">
                     <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
                     <p id="uploadStatus">上传中...</p>
                 </div>
             </div>
+
+            <div class="stats-panel">
+                <div class="stat-card">
+                    <span class="stat-label">知识库文档</span>
+                    <strong class="stat-value" id="docCount">0</strong>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-label">文本分块</span>
+                    <strong class="stat-value" id="chunkCount">0</strong>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-label">图片资源</span>
+                    <strong class="stat-value" id="imageCount">0</strong>
+                </div>
+            </div>
             
             <div class="doc-list">
                 <h3>📚 已上传文档</h3>
                 <div id="docList"><p class="empty-tip">暂无文档</p></div>
+            </div>
+
+            <div class="history-panel">
+                <h3>🕘 最近问答</h3>
+                <div id="historyList"><p class="empty-tip">暂无历史记录</p></div>
             </div>
         </div>
         
@@ -44,16 +64,21 @@
             <div class="chat-messages" id="chatMessages">
                 <div class="welcome-msg">
                     <h3>👋 欢迎使用工业知识库RAG系统</h3>
-                    <p>请先上传文档，然后输入问题进行智能问答</p>
+                    <p>请先上传工业文档或图片，再进行文本问答或图文联合问答</p>
                     <div class="tips">
-                        <div class="tip-item">1️⃣ 上传工业文档（PDF/DOCX/TXT）</div>
-                        <div class="tip-item">2️⃣ 系统自动解析并建立向量索引</div>
-                        <div class="tip-item">3️⃣ 输入问题，AI基于文档内容回答</div>
+                        <div class="tip-item">1️⃣ 上传工业文档或设备图片</div>
+                        <div class="tip-item">2️⃣ 系统自动解析内容并建立向量索引</div>
+                        <div class="tip-item">3️⃣ 提问时可附加图片，进行图文联合问答</div>
                     </div>
                 </div>
             </div>
             
             <div class="chat-input">
+                <div class="attach-bar">
+                    <input type="file" id="chatImageInput" accept=".png,.jpg,.jpeg,.bmp,.webp" hidden>
+                    <button class="attach-btn" id="attachBtn" type="button">附加图片</button>
+                    <span class="attach-name" id="attachName">未选择图片</span>
+                </div>
                 <div class="input-wrapper">
                     <textarea id="questionInput" placeholder="请输入您的问题..." rows="1"></textarea>
                     <button id="sendBtn" onclick="sendQuestion()">发送</button>
