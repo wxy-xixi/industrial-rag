@@ -1,6 +1,7 @@
 import os
 import shutil
 import tempfile
+import re
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 from flask import Flask, request, jsonify, send_from_directory
@@ -247,6 +248,53 @@ def build_focused_continuity_context(ordered_results, question):
             return f'【正文资料】\n{passage}'
 
     return ''
+
+def build_process_answer_from_context(question, focused_context):
+    """对“基本过程组成”类问题做规则化抽取，避免模型漏项。"""
+    if '基本过程' not in (question or '') or not focused_context:
+        return ''
+
+    content = focused_context.replace('【正文资料】', '').strip()
+    anchor = '化学热处理通常由四个基本过程组成'
+    start = content.find(anchor)
+    if start < 0:
+        return ''
+
+    passage = content[start:]
+    passage = re.sub(r'\s+', ' ', passage)
+    titles = {
+        '1': '介质中的化学反应',
+        '2': '渗剂扩散',
+        '3': '相界面反应',
+        '4': '被吸附并溶入的渗入元素向工件内部扩散'
+    }
+
+    positions = {}
+    for number, title in titles.items():
+        pattern = re.compile(rf'{number}\)\s*{re.escape(title)}')
+        match = pattern.search(passage)
+        if not match:
+            return ''
+        positions[number] = match.start()
+
+    ordered_numbers = ['1', '2', '3', '4']
+    item_map = {}
+    for index, number in enumerate(ordered_numbers):
+        start_pos = positions[number]
+        end_pos = positions[ordered_numbers[index + 1]] if index + 1 < len(ordered_numbers) else len(passage)
+        item_text = passage[start_pos:end_pos].strip()
+        item_text = re.sub(rf'^{number}\)\s*', '', item_text).strip()
+        item_text = re.split(r'\s+[1-4]\)\s*', item_text)[0].strip()
+        item_text = item_text.rstrip('。')
+        item_map[number] = item_text
+
+    if any(not item_map[number] for number in ordered_numbers):
+        return ''
+
+    lines = ['总结回答：', '化学热处理通常由 4 个基本过程组成：']
+    for number in ordered_numbers:
+        lines.append(f'{number}. {item_map[number]}。')
+    return '\n'.join(lines)
 
 def search_within_document(question, doc_id, top_k):
     """仅在指定文档内检索相似 chunk。"""
@@ -497,6 +545,7 @@ def chat():
         if table_chunks:
             context_parts.append('【表格/清单资料】\n' + '\n\n'.join(table_chunks))
         context = '\n\n'.join(context_parts)
+        focused_context = ''
         if prefers_continuity and not prefers_table:
             focused_context = build_focused_continuity_context(ordered_results, question)
             if focused_context:
@@ -514,7 +563,9 @@ def chat():
         if temp_image_path:
             answer = ask_multimodal_llm(question, context, temp_image_path)
         else:
-            answer = ask_llm(question, context, include_table_mode=prefers_table)
+            answer = build_process_answer_from_context(question, focused_context)
+            if not answer:
+                answer = ask_llm(question, context, include_table_mode=prefers_table)
         
         # 保存记录
         history = ChatHistory(
