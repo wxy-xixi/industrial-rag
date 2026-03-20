@@ -323,6 +323,12 @@ const sendBtn = document.getElementById('sendBtn');
 const chatImageInput = document.getElementById('chatImageInput');
 const attachBtn = document.getElementById('attachBtn');
 const attachName = document.getElementById('attachName');
+const historyModal = document.getElementById('historyModal');
+const historyModalBackdrop = document.getElementById('historyModalBackdrop');
+const historyModalClose = document.getElementById('historyModalClose');
+const historyModalTime = document.getElementById('historyModalTime');
+const historyModalQuestion = document.getElementById('historyModalQuestion');
+const historyModalAnswer = document.getElementById('historyModalAnswer');
 
 attachBtn.addEventListener('click', () => chatImageInput.click());
 chatImageInput.addEventListener('change', () => {
@@ -330,6 +336,14 @@ chatImageInput.addEventListener('change', () => {
         attachName.textContent = `已附加: ${chatImageInput.files[0].name}`;
     } else {
         attachName.textContent = '未选择图片';
+    }
+});
+
+historyModalClose.addEventListener('click', closeHistoryModal);
+historyModalBackdrop.addEventListener('click', closeHistoryModal);
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !historyModal.hidden) {
+        closeHistoryModal();
     }
 });
 
@@ -476,6 +490,19 @@ function removeLoading(id) {
     if (el) el.remove();
 }
 
+function openHistoryModal(record) {
+    historyModalTime.textContent = record.create_time || '';
+    historyModalQuestion.textContent = record.question || '';
+    historyModalAnswer.textContent = record.answer || '';
+    historyModal.hidden = false;
+    document.body.classList.add('modal-open');
+}
+
+function closeHistoryModal() {
+    historyModal.hidden = true;
+    document.body.classList.remove('modal-open');
+}
+
 function loadHistory() {
     fetch(`${API}/history`)
     .then(res => res.json())
@@ -495,6 +522,16 @@ function loadHistory() {
         records.slice(0, 8).forEach((record) => {
             const item = document.createElement('div');
             item.className = 'history-item';
+            item.tabIndex = 0;
+            item.setAttribute('role', 'button');
+            item.setAttribute('aria-label', `查看历史问答：${record.question}`);
+            item.addEventListener('click', () => openHistoryModal(record));
+            item.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    openHistoryModal(record);
+                }
+            });
 
             const question = document.createElement('div');
             question.className = 'history-question';
@@ -508,9 +545,14 @@ function loadHistory() {
             time.className = 'history-time';
             time.textContent = record.create_time;
 
+            const action = document.createElement('div');
+            action.className = 'history-action';
+            action.textContent = '点击查看完整回答';
+
             item.appendChild(question);
             item.appendChild(answer);
             item.appendChild(time);
+            item.appendChild(action);
             list.appendChild(item);
         });
     });
