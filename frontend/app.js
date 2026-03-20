@@ -1,8 +1,13 @@
 const API = `${window.location.origin}/api`;
+const DOC_CATEGORIES = ['未分类', '工艺规范', '设备操作', '热处理', '质量检测', '安全规程', '维修维护'];
 
 // ==================== 文件上传 ====================
 const uploadBox = document.getElementById('uploadBox');
 const fileInput = document.getElementById('fileInput');
+const categorySelect = document.getElementById('categorySelect');
+const docFilter = document.getElementById('docFilter');
+const docSearch = document.getElementById('docSearch');
+let currentDocuments = [];
 
 uploadBox.addEventListener('click', () => fileInput.click());
 
@@ -50,6 +55,7 @@ function uploadFile(file) {
 
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('category', categorySelect.value);
 
     fetch(`${API}/upload`, {
         method: 'POST',
@@ -78,32 +84,97 @@ function uploadFile(file) {
     fileInput.value = '';
 }
 
+docFilter.addEventListener('change', () => {
+    renderDocuments(currentDocuments);
+});
+
+docSearch.addEventListener('input', () => {
+    renderDocuments(currentDocuments);
+});
+
 // ==================== 文档列表 ====================
 function loadDocuments() {
     fetch(`${API}/documents`)
     .then(res => res.json())
     .then(data => {
-        const list = document.getElementById('docList');
         const docs = data.data || [];
+        currentDocuments = docs;
         updateStats(docs);
-        list.replaceChildren();
-        if (docs.length === 0) {
-            const empty = document.createElement('p');
-            empty.className = 'empty-tip';
-            empty.textContent = '暂无文档';
-            list.appendChild(empty);
-            return;
+        renderDocuments(docs);
+    });
+}
+
+function renderDocuments(docs) {
+    const list = document.getElementById('docList');
+    const filterValue = docFilter.value;
+    const searchValue = docSearch.value.trim().toLowerCase();
+    const visibleDocs = docs.filter((doc) => {
+        const category = doc.category || '未分类';
+        const matchCategory = filterValue === '全部' || category === filterValue;
+        const matchSearch = searchValue === ''
+            || doc.filename.toLowerCase().includes(searchValue)
+            || category.toLowerCase().includes(searchValue)
+            || (doc.file_type || '').toLowerCase().includes(searchValue);
+        return matchCategory && matchSearch;
+    });
+
+    list.replaceChildren();
+
+    if (visibleDocs.length === 0) {
+        const empty = document.createElement('p');
+        empty.className = 'empty-tip';
+        empty.textContent = docs.length === 0 ? '暂无文档' : '当前筛选条件下暂无文档';
+        list.appendChild(empty);
+        return;
+    }
+
+    const groupedDocs = visibleDocs.reduce((groups, doc) => {
+        const category = doc.category || '未分类';
+        if (!groups[category]) {
+            groups[category] = [];
         }
-        docs.forEach((doc) => {
+        groups[category].push(doc);
+        return groups;
+    }, {});
+
+    Object.entries(groupedDocs).forEach(([category, items]) => {
+        const group = document.createElement('div');
+        group.className = 'doc-group';
+
+        const groupHeader = document.createElement('div');
+        groupHeader.className = 'doc-group-header';
+
+        const groupTitle = document.createElement('span');
+        groupTitle.className = `doc-group-title category-${slugifyCategory(category)}`;
+        groupTitle.textContent = category;
+
+        const groupCount = document.createElement('span');
+        groupCount.className = 'doc-group-count';
+        groupCount.textContent = `${items.length} 份文档`;
+
+        groupHeader.appendChild(groupTitle);
+        groupHeader.appendChild(groupCount);
+        group.appendChild(groupHeader);
+
+        items.forEach((doc) => {
             const item = document.createElement('div');
             item.className = 'doc-item';
 
             const info = document.createElement('div');
             info.className = 'doc-info';
+            const topRow = document.createElement('div');
+            topRow.className = 'doc-top-row';
 
             const typeTag = document.createElement('span');
             typeTag.className = `doc-type type-${doc.file_type}`;
             typeTag.textContent = (doc.file_type || 'unknown').toUpperCase();
+
+            const categoryTag = document.createElement('select');
+            categoryTag.className = `doc-category-tag category-${slugifyCategory(doc.category || '未分类')}`;
+            buildCategoryOptions(categoryTag, doc.category || '未分类');
+            categoryTag.addEventListener('change', (event) => {
+                updateDocumentCategory(doc.id, event.target.value);
+            });
 
             const title = document.createElement('h4');
             title.textContent = doc.filename;
@@ -117,13 +188,61 @@ function loadDocuments() {
             button.textContent = '×';
             button.addEventListener('click', () => deleteDoc(doc.id));
 
-            info.appendChild(typeTag);
+            topRow.appendChild(typeTag);
+            topRow.appendChild(categoryTag);
+            info.appendChild(topRow);
             info.appendChild(title);
             info.appendChild(meta);
             item.appendChild(info);
             item.appendChild(button);
-            list.appendChild(item);
+            group.appendChild(item);
         });
+
+        list.appendChild(group);
+    });
+}
+
+function buildCategoryOptions(selectEl, currentValue) {
+    selectEl.replaceChildren();
+    DOC_CATEGORIES.forEach((category) => {
+        const option = document.createElement('option');
+        option.value = category;
+        option.textContent = category;
+        option.selected = category === currentValue;
+        selectEl.appendChild(option);
+    });
+}
+
+function slugifyCategory(category) {
+    const mapping = {
+        '未分类': 'uncategorized',
+        '工艺规范': 'process',
+        '设备操作': 'operation',
+        '热处理': 'heat',
+        '质量检测': 'quality',
+        '安全规程': 'safety',
+        '维修维护': 'maintenance'
+    };
+    return mapping[category] || 'uncategorized';
+}
+
+function updateDocumentCategory(id, category) {
+    fetch(`${API}/documents/${id}/category`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category })
+    })
+    .then(res => res.json())
+    .then((data) => {
+        if (data.code === 200) {
+            loadDocuments();
+        } else {
+            alert(data.msg || '分类更新失败');
+        }
+    })
+    .catch((err) => {
+        alert(`分类更新失败: ${err.message}`);
+        loadDocuments();
     });
 }
 
@@ -131,13 +250,54 @@ function updateStats(docs) {
     const docCount = document.getElementById('docCount');
     const chunkCount = document.getElementById('chunkCount');
     const imageCount = document.getElementById('imageCount');
+    const categorySummary = document.getElementById('categorySummary');
 
     const totalChunks = docs.reduce((sum, doc) => sum + (doc.chunk_count || 0), 0);
     const totalImages = docs.filter((doc) => ['png', 'jpg', 'jpeg', 'bmp', 'webp'].includes(doc.file_type)).length;
+    const categoryCounts = docs.reduce((acc, doc) => {
+        const category = doc.category || '未分类';
+        acc[category] = (acc[category] || 0) + 1;
+        return acc;
+    }, {});
 
-    docCount.textContent = docs.length;
-    chunkCount.textContent = totalChunks;
-    imageCount.textContent = totalImages;
+    animateStatValue(docCount, docs.length);
+    animateStatValue(chunkCount, totalChunks);
+    animateStatValue(imageCount, totalImages);
+
+    categorySummary.replaceChildren();
+    Object.entries(categoryCounts).forEach(([category, count]) => {
+        const badge = document.createElement('span');
+        badge.className = `category-mini-badge category-${slugifyCategory(category)}`;
+        badge.textContent = `${category} ${count}`;
+        categorySummary.appendChild(badge);
+    });
+}
+
+function animateStatValue(element, nextValue) {
+    const currentValue = Number(element.dataset.value || '0');
+    if (currentValue === nextValue) {
+        element.textContent = nextValue;
+        return;
+    }
+
+    const duration = 420;
+    const start = performance.now();
+    element.dataset.value = String(nextValue);
+    element.classList.add('updating');
+
+    function frame(now) {
+        const progress = Math.min((now - start) / duration, 1);
+        const value = Math.round(currentValue + (nextValue - currentValue) * progress);
+        element.textContent = value;
+        if (progress < 1) {
+            requestAnimationFrame(frame);
+        } else {
+            element.textContent = nextValue;
+            window.setTimeout(() => element.classList.remove('updating'), 120);
+        }
+    }
+
+    requestAnimationFrame(frame);
 }
 
 function deleteDoc(id) {

@@ -12,6 +12,7 @@ class Document(db.Model):
     file_type = db.Column(db.String(20), nullable=False, comment='文件类型')
     file_size = db.Column(db.Integer, comment='文件大小(字节)')
     chunk_count = db.Column(db.Integer, default=0, comment='分块数量')
+    category = db.Column(db.String(50), default='未分类', comment='文档分类')
     upload_time = db.Column(db.DateTime, default=datetime.now, comment='上传时间')
     status = db.Column(db.String(20), default='processing', comment='状态')
     

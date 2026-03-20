@@ -2,6 +2,7 @@ import os
 import numpy as np
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
+from sqlalchemy import inspect, text
 from werkzeug.utils import secure_filename
 from config import Config
 from models import db, Document, Chunk, ChatHistory
@@ -24,10 +25,37 @@ CORS(app)
 db.init_app(app)
 
 FRONTEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'frontend'))
+DOC_CATEGORIES = {
+    '未分类',
+    '工艺规范',
+    '设备操作',
+    '热处理',
+    '质量检测',
+    '安全规程',
+    '维修维护'
+}
+
+def normalize_category(category):
+    value = (category or '').strip()
+    if not value:
+        return '未分类'
+    return value if value in DOC_CATEGORIES else '未分类'
+
+def ensure_document_schema():
+    inspector = inspect(db.engine)
+    columns = {column['name'] for column in inspector.get_columns('documents')}
+    if 'category' in columns:
+        return
+
+    db.session.execute(
+        text("ALTER TABLE documents ADD COLUMN category VARCHAR(50) DEFAULT '未分类'")
+    )
+    db.session.commit()
 
 # 创建表和上传目录
 with app.app_context():
     db.create_all()
+    ensure_document_schema()
     os.makedirs(Config.UPLOAD_FOLDER, exist_ok=True)
     os.makedirs(Config.VECTOR_STORE_DIR, exist_ok=True)
     os.makedirs(Config.CHAT_IMAGE_FOLDER, exist_ok=True)
@@ -92,6 +120,7 @@ def upload_file():
     doc = None
     filepath = None
     try:
+        category = normalize_category(request.form.get('category'))
         # 保存文件
         safe_filename = sanitize_upload_filename(file.filename)
         filepath, stored_filename = build_unique_filepath(safe_filename)
@@ -103,6 +132,7 @@ def upload_file():
             filename=stored_filename,
             file_type=ext.replace('.', ''),
             file_size=file_size,
+            category=category,
             status='processing'
         )
         db.session.add(doc)
@@ -144,6 +174,7 @@ def upload_file():
             'data': {
                 'id': doc.id,
                 'filename': doc.filename,
+                'category': doc.category,
                 'chunk_count': doc.chunk_count
             }
         })
@@ -265,10 +296,31 @@ def get_documents():
             'file_type': doc.file_type,
             'file_size': doc.file_size,
             'chunk_count': doc.chunk_count,
+            'category': doc.category or '未分类',
             'upload_time': doc.upload_time.strftime('%Y-%m-%d %H:%M:%S'),
             'status': doc.status
         })
     return jsonify({'code': 200, 'data': data})
+
+@app.route('/api/documents/<int:doc_id>/category', methods=['PATCH'])
+def update_document_category(doc_id):
+    """更新文档分类"""
+    doc = db.session.get(Document, doc_id)
+    if not doc:
+        return jsonify({'code': 404, 'msg': '文档不存在'}), 404
+
+    data = request.get_json(silent=True) or {}
+    doc.category = normalize_category(data.get('category'))
+    db.session.commit()
+
+    return jsonify({
+        'code': 200,
+        'msg': '分类更新成功',
+        'data': {
+            'id': doc.id,
+            'category': doc.category
+        }
+    })
 
 @app.route('/api/documents/<int:doc_id>', methods=['DELETE'])
 def delete_document(doc_id):

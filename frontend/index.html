@@ -7,86 +7,158 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="container">
-        <!-- 侧边栏 -->
-        <div class="sidebar">
-            <div class="logo">
-                <h2>🏭 工业知识库</h2>
-                <p>RAG智能问答系统</p>
-            </div>
-            
-            <div class="upload-section">
-                <h3>📄 文档上传</h3>
-                <div class="upload-box" id="uploadBox">
-                    <input type="file" id="fileInput" accept=".pdf,.docx,.txt,.png,.jpg,.jpeg,.bmp,.webp" hidden>
-                    <p>点击或拖拽上传</p>
-                    <span>支持 PDF、DOCX、TXT、PNG、JPG、WEBP</span>
-                </div>
-                <div class="upload-progress" id="uploadProgress" style="display:none;">
-                    <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-                    <p id="uploadStatus">上传中...</p>
-                </div>
-            </div>
+    <div class="page-shell">
+        <div class="page-glow page-glow-a"></div>
+        <div class="page-glow page-glow-b"></div>
+        <div class="page-grid"></div>
 
-            <div class="stats-panel">
-                <div class="stat-card">
-                    <span class="stat-label">知识库文档</span>
-                    <strong class="stat-value" id="docCount">0</strong>
+        <div class="container">
+            <aside class="sidebar">
+                <div class="logo panel">
+                    <span class="eyebrow">Industrial Multimodal RAG</span>
+                    <h2>工业知识中枢</h2>
+                    <p>面向工业文档与设备图像的智能问答平台</p>
                 </div>
-                <div class="stat-card">
-                    <span class="stat-label">文本分块</span>
-                    <strong class="stat-value" id="chunkCount">0</strong>
-                </div>
-                <div class="stat-card">
-                    <span class="stat-label">图片资源</span>
-                    <strong class="stat-value" id="imageCount">0</strong>
-                </div>
-            </div>
-            
-            <div class="doc-list">
-                <h3>📚 已上传文档</h3>
-                <div id="docList"><p class="empty-tip">暂无文档</p></div>
-            </div>
 
-            <div class="history-panel">
-                <h3>🕘 最近问答</h3>
-                <div id="historyList"><p class="empty-tip">暂无历史记录</p></div>
-            </div>
-        </div>
-        
-        <!-- 主内容区 -->
-        <div class="main">
-            <div class="chat-header">
-                <h2>💬 智能问答</h2>
-                <span>基于RAG检索增强生成</span>
-            </div>
-            
-            <div class="chat-messages" id="chatMessages">
-                <div class="welcome-msg">
-                    <h3>👋 欢迎使用工业知识库RAG系统</h3>
-                    <p>请先上传工业文档或图片，再进行文本问答或图文联合问答</p>
-                    <div class="tips">
-                        <div class="tip-item">1️⃣ 上传工业文档或设备图片</div>
-                        <div class="tip-item">2️⃣ 系统自动解析内容并建立向量索引</div>
-                        <div class="tip-item">3️⃣ 提问时可附加图片，进行图文联合问答</div>
+                <section class="upload-section panel">
+                    <div class="section-heading">
+                        <span class="section-kicker">Knowledge Ingestion</span>
+                        <h3>文档上传</h3>
+                    </div>
+                    <div class="upload-box" id="uploadBox">
+                        <input type="file" id="fileInput" accept=".pdf,.docx,.txt,.png,.jpg,.jpeg,.bmp,.webp" hidden>
+                        <div class="upload-icon">+</div>
+                        <p>点击或拖拽文件到这里</p>
+                        <span>支持 PDF、DOCX、TXT、PNG、JPG、WEBP</span>
+                    </div>
+                    <div class="category-tools">
+                        <label class="category-label" for="categorySelect">入库分类</label>
+                        <select id="categorySelect" class="category-select">
+                            <option value="未分类">未分类</option>
+                            <option value="工艺规范">工艺规范</option>
+                            <option value="设备操作">设备操作</option>
+                            <option value="热处理">热处理</option>
+                            <option value="质量检测">质量检测</option>
+                            <option value="安全规程">安全规程</option>
+                            <option value="维修维护">维修维护</option>
+                        </select>
+                    </div>
+                    <div class="upload-progress" id="uploadProgress" style="display:none;">
+                        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+                        <p id="uploadStatus">上传中...</p>
+                    </div>
+                </section>
+
+                <section class="stats-panel panel">
+                    <div class="section-heading">
+                        <span class="section-kicker">Knowledge Metrics</span>
+                        <h3>知识库状态</h3>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-label">知识库文档</span>
+                        <strong class="stat-value" id="docCount">0</strong>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-label">文本分块</span>
+                        <strong class="stat-value" id="chunkCount">0</strong>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-label">图片资源</span>
+                        <strong class="stat-value" id="imageCount">0</strong>
+                    </div>
+                    <div class="category-summary" id="categorySummary"></div>
+                </section>
+
+                <section class="doc-list panel">
+                    <div class="section-heading">
+                        <span class="section-kicker">Knowledge Assets</span>
+                        <h3>已上传文档</h3>
+                        <p class="section-subtext">查看当前知识库中的工业资料与图像资产。</p>
+                    </div>
+                    <div class="category-tools category-filter">
+                        <label class="category-label" for="docFilter">分类筛选</label>
+                        <select id="docFilter" class="category-select">
+                            <option value="全部">全部</option>
+                            <option value="未分类">未分类</option>
+                            <option value="工艺规范">工艺规范</option>
+                            <option value="设备操作">设备操作</option>
+                            <option value="热处理">热处理</option>
+                            <option value="质量检测">质量检测</option>
+                            <option value="安全规程">安全规程</option>
+                            <option value="维修维护">维修维护</option>
+                        </select>
+                    </div>
+                    <div class="category-tools category-filter">
+                        <label class="category-label" for="docSearch">文档搜索</label>
+                        <input id="docSearch" class="category-input" type="text" placeholder="搜索文档名或分类">
+                    </div>
+                    <div id="docList"><p class="empty-tip">暂无文档</p></div>
+                </section>
+
+                <section class="history-panel panel">
+                    <div class="section-heading">
+                        <span class="section-kicker">Recent Trace</span>
+                        <h3>最近问答</h3>
+                        <p class="section-subtext">展示最近的问答轨迹，便于答辩时回溯系统效果。</p>
+                    </div>
+                    <div id="historyList"><p class="empty-tip">暂无历史记录</p></div>
+                </section>
+            </aside>
+
+            <main class="main">
+                <div class="chat-header panel">
+                    <div>
+                        <span class="section-kicker">Conversational Workspace</span>
+                        <h2>智能问答控制台</h2>
+                    </div>
+                    <div class="header-badge">FAISS + Qwen + Vision</div>
+                </div>
+
+                <div class="hero-band">
+                    <div class="hero-card">
+                        <span class="hero-label">多模态输入</span>
+                        <strong>文档、图像、问答链路统一接入</strong>
+                    </div>
+                    <div class="hero-card">
+                        <span class="hero-label">检索增强</span>
+                        <strong>FAISS 向量索引支撑工业知识命中</strong>
+                    </div>
+                    <div class="hero-card">
+                        <span class="hero-label">答辩展示</span>
+                        <strong>统计、来源、历史记录可视化输出</strong>
                     </div>
                 </div>
-            </div>
-            
-            <div class="chat-input">
-                <div class="attach-bar">
-                    <input type="file" id="chatImageInput" accept=".png,.jpg,.jpeg,.bmp,.webp" hidden>
-                    <button class="attach-btn" id="attachBtn" type="button">附加图片</button>
-                    <span class="attach-name" id="attachName">未选择图片</span>
+
+                <div class="chat-stage">
+                    <div class="chat-messages" id="chatMessages">
+                        <div class="welcome-msg">
+                            <span class="welcome-badge">System Ready</span>
+                            <h3>工业知识问答工作台已就绪</h3>
+                            <p>请先上传工业文档或图片，再进行文本问答或图文联合问答。</p>
+                            <div class="tips">
+                                <div class="tip-item">01 上传工业文档或设备图片</div>
+                                <div class="tip-item">02 系统自动解析内容并建立向量索引</div>
+                                <div class="tip-item">03 提问时可附加图片，进行图文联合问答</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="chat-input panel">
+                        <div class="attach-bar">
+                            <input type="file" id="chatImageInput" accept=".png,.jpg,.jpeg,.bmp,.webp" hidden>
+                            <button class="attach-btn" id="attachBtn" type="button">附加图片</button>
+                            <span class="attach-name" id="attachName">未选择图片</span>
+                        </div>
+                        <div class="input-wrapper">
+                            <textarea id="questionInput" placeholder="请输入您的问题，或结合设备图片发起图文联合问答..." rows="1"></textarea>
+                            <button id="sendBtn" onclick="sendQuestion()">发送</button>
+                        </div>
+                    </div>
                 </div>
-                <div class="input-wrapper">
-                    <textarea id="questionInput" placeholder="请输入您的问题..." rows="1"></textarea>
-                    <button id="sendBtn" onclick="sendQuestion()">发送</button>
-                </div>
-            </div>
+            </main>
         </div>
     </div>
-    
+
     <script src="app.js"></script>
 </body>
 </html>
