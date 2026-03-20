@@ -72,3 +72,5 @@
 - 答辩讲解稿见 `docs/DEFENSE.md`
 - 系统架构说明见 `docs/ARCHITECTURE.md`
 - 持久化部署说明见 `docs/DEPLOYMENT.md`
+- 代码结构说明见 `docs/代码结构说明.md`
+- 代码运行逻辑说明见 `docs/代码逻辑.md`
