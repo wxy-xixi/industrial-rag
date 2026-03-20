@@ -42,11 +42,14 @@ TEXT_EXTENSIONS = {'.pdf', '.docx', '.txt'}
 def sanitize_upload_filename(filename):
     """移除路径成分并确保文件名可安全落盘。"""
     base_name = os.path.basename((filename or '').strip())
-    safe_name = secure_filename(base_name)
-    if not safe_name:
-        name, ext = os.path.splitext(base_name)
+    name, ext = os.path.splitext(base_name)
+    safe_stem = secure_filename(name)
+
+    if not safe_stem:
         fallback = ''.join(ch for ch in name if ch.isalnum()) or 'document'
-        safe_name = f'{fallback}{ext.lower()}'
+        safe_stem = fallback
+
+    safe_name = f'{safe_stem}{ext.lower()}'
     return safe_name
 
 def build_unique_filepath(filename, folder=None):
@@ -299,4 +302,4 @@ def get_history():
     return jsonify({'code': 200, 'data': data})
 
 if __name__ == '__main__':
-    app.run(debug=Config.DEBUG, port=5000)
+    app.run(host=Config.HOST, port=Config.PORT, debug=Config.DEBUG)

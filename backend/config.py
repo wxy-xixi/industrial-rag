@@ -16,20 +16,47 @@ def load_env_file():
 
 load_env_file()
 
+def resolve_path(path_value, default_path):
+    if not path_value:
+        return default_path
+    if os.path.isabs(path_value):
+        return path_value
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    return os.path.join(project_root, path_value)
+
+def resolve_database_url():
+    default_sqlite_path = os.path.join(os.path.dirname(__file__), 'industrial_rag.db')
+    database_url = os.getenv('DATABASE_URL', f'sqlite:///{default_sqlite_path}')
+
+    if database_url.startswith('sqlite:///') and not database_url.startswith('sqlite:////'):
+        relative_path = database_url.replace('sqlite:///', '', 1)
+        absolute_path = resolve_path(relative_path, default_sqlite_path)
+        return f'sqlite:///{absolute_path}'
+
+    return database_url
+
 class Config:
     BASE_DIR = os.path.dirname(__file__)
+    PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, '..'))
 
     # 数据库配置，默认使用本地 SQLite，便于直接运行演示
-    SQLALCHEMY_DATABASE_URI = os.getenv(
-        'DATABASE_URL',
-        f"sqlite:///{os.path.join(BASE_DIR, 'industrial_rag.db')}"
-    )
+    SQLALCHEMY_DATABASE_URI = resolve_database_url()
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    SQLALCHEMY_ENGINE_OPTIONS = {'pool_pre_ping': True}
     
     # 上传文件配置
-    UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
-    VECTOR_STORE_DIR = os.path.join(BASE_DIR, 'vector_store')
-    CHAT_IMAGE_FOLDER = os.path.join(BASE_DIR, 'chat_images')
+    UPLOAD_FOLDER = resolve_path(
+        os.getenv('UPLOAD_FOLDER'),
+        os.path.join(BASE_DIR, 'uploads')
+    )
+    VECTOR_STORE_DIR = resolve_path(
+        os.getenv('VECTOR_STORE_DIR'),
+        os.path.join(BASE_DIR, 'vector_store')
+    )
+    CHAT_IMAGE_FOLDER = resolve_path(
+        os.getenv('CHAT_IMAGE_FOLDER'),
+        os.path.join(BASE_DIR, 'chat_images')
+    )
     MAX_CONTENT_LENGTH = int(os.getenv('MAX_CONTENT_LENGTH', 50 * 1024 * 1024))
     
     # 通义千问 API 配置
@@ -42,3 +69,5 @@ class Config:
     DEBUG = os.getenv('FLASK_DEBUG', 'false').lower() == 'true'
     TEXT_MODEL = os.getenv('TEXT_MODEL', 'qwen-turbo')
     VL_MODEL = os.getenv('VL_MODEL', 'qwen-vl-chat-v1')
+    HOST = os.getenv('FLASK_HOST', '127.0.0.1')
+    PORT = int(os.getenv('FLASK_PORT', 5000))

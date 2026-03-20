@@ -1,0 +1,10 @@
+.git
+.gitignore
+backend/venv
+backend/__pycache__
+backend/uploads
+backend/vector_store
+backend/chat_images
+backend/*.db
+.env
+.DS_Store

@@ -71,3 +71,4 @@
 
 - 答辩讲解稿见 `docs/DEFENSE.md`
 - 系统架构说明见 `docs/ARCHITECTURE.md`
+- 持久化部署说明见 `docs/DEPLOYMENT.md`
