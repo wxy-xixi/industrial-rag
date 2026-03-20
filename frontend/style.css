@@ -29,7 +29,8 @@ body {
         radial-gradient(circle at top right, rgba(93, 242, 178, 0.12), transparent 24%),
         linear-gradient(145deg, #04101c 0%, #081827 45%, #06101b 100%);
     color: var(--text);
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: hidden;
 }
 
 .page-shell {
@@ -79,6 +80,8 @@ body {
     grid-template-columns: 360px minmax(0, 1fr);
     gap: 20px;
     height: calc(100vh - 44px);
+    min-height: calc(100vh - 44px);
+    align-items: stretch;
 }
 
 .panel {
@@ -107,6 +110,7 @@ body {
     gap: 16px;
     min-height: 0;
     overflow-y: auto;
+    overscroll-behavior: contain;
     padding-right: 4px;
 }
 
@@ -738,6 +742,25 @@ body.modal-open {
     display: grid;
     grid-template-rows: auto auto minmax(0, 1fr);
     gap: 18px;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: 4px;
+}
+
+.main::-webkit-scrollbar,
+.sidebar::-webkit-scrollbar,
+.chat-messages::-webkit-scrollbar,
+.doc-list::-webkit-scrollbar {
+    width: 8px;
+}
+
+.main::-webkit-scrollbar-thumb,
+.sidebar::-webkit-scrollbar-thumb,
+.chat-messages::-webkit-scrollbar-thumb,
+.doc-list::-webkit-scrollbar-thumb {
+    background: rgba(126, 169, 210, 0.2);
+    border-radius: 999px;
 }
 
 .chat-header {
@@ -963,6 +986,29 @@ body.modal-open {
     margin-bottom: 12px;
 }
 
+.query-scope-bar {
+    margin-bottom: 12px;
+}
+
+.query-doc-select {
+    max-width: 360px;
+}
+
+.query-scope-indicator {
+    margin-top: 10px;
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    padding: 8px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(102, 242, 255, 0.2);
+    background: rgba(73, 179, 255, 0.08);
+    color: var(--cyan);
+    font-size: 0.78rem;
+    line-height: 1.4;
+    word-break: break-word;
+}
+
 .attach-btn {
     border: 1px solid rgba(102, 242, 255, 0.22);
     border-radius: 999px;
@@ -1073,6 +1119,7 @@ body.modal-open {
 
     .page-shell {
         padding: 14px;
+        overflow: visible;
     }
 
     .container {
@@ -1084,6 +1131,12 @@ body.modal-open {
     .main,
     .chat-stage {
         min-height: auto;
+    }
+
+    .sidebar,
+    .main {
+        overflow: visible;
+        padding-right: 0;
     }
 
     .doc-list {

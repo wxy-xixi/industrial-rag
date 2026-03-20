@@ -149,6 +149,13 @@
                             <button class="attach-btn" id="attachBtn" type="button">附加图片</button>
                             <span class="attach-name" id="attachName">未选择图片</span>
                         </div>
+                        <div class="query-scope-bar">
+                            <label class="category-label" for="queryDocSelect">本次检索范围</label>
+                            <select id="queryDocSelect" class="category-select query-doc-select">
+                                <option value="">全知识库</option>
+                            </select>
+                            <div class="query-scope-indicator" id="queryScopeIndicator" hidden></div>
+                        </div>
                         <div class="input-wrapper">
                             <textarea id="questionInput" placeholder="请输入您的问题，或结合设备图片发起图文联合问答..." rows="1"></textarea>
                             <button id="sendBtn" onclick="sendQuestion()">发送</button>

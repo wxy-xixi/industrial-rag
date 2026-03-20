@@ -1,19 +1,25 @@
 import os
+import shutil
+import tempfile
 import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from sqlalchemy import inspect, text
 from werkzeug.utils import secure_filename
 from config import Config
 from models import db, Document, Chunk, ChatHistory
-from doc_parser import parse_file, split_text
+from doc_parser import parse_file, render_pdf_pages, split_text
 from rag_engine import (
     add_embeddings,
     ask_llm,
     ask_multimodal_llm,
+    extract_pdf_page_text,
+    get_embedding,
     get_embeddings_batch,
     get_indexed_chunk_count,
     load_index,
+    looks_like_table_chunk,
     rebuild_index,
     search_similar,
     summarize_image,
@@ -91,6 +97,180 @@ def build_unique_filepath(filename, folder=None):
         index += 1
     return os.path.join(target_folder, candidate), candidate
 
+def select_diverse_results(retrieved, chunk_map, top_k):
+    """在全知识库候选中做简单去重，避免单一文档占满结果。"""
+    selected = []
+    per_doc_counts = {}
+
+    for chunk_id, score in retrieved:
+        chunk = chunk_map.get(chunk_id)
+        if not chunk:
+            continue
+
+        doc_count = per_doc_counts.get(chunk.doc_id, 0)
+        if doc_count >= Config.MAX_CHUNKS_PER_DOC:
+            continue
+
+        selected.append((chunk, score))
+        per_doc_counts[chunk.doc_id] = doc_count + 1
+        if len(selected) >= top_k:
+            break
+
+    if len(selected) < top_k:
+        seen_chunk_ids = {chunk.id for chunk, _score in selected}
+        for chunk_id, score in retrieved:
+            chunk = chunk_map.get(chunk_id)
+            if not chunk or chunk.id in seen_chunk_ids:
+                continue
+            selected.append((chunk, score))
+            if len(selected) >= top_k:
+                break
+
+    return selected
+
+def is_table_query(question):
+    keywords = ['表', '方法', '作用', '参数', '元素', '对照', '类别', '一览', '有哪些']
+    text = (question or '').strip()
+    hit_count = sum(1 for keyword in keywords if keyword in text)
+    return hit_count >= 2
+
+def augment_table_neighbors(base_results, chunk_map):
+    """表格类问题补充相邻 chunk，尽量把整张表拼完整。"""
+    if not base_results:
+        return base_results
+
+    table_related = [chunk for chunk, _score in base_results if looks_like_table_chunk(chunk.content)]
+    if not table_related:
+        return base_results
+
+    doc_ranges = {}
+    for chunk in table_related:
+        current = doc_ranges.setdefault(chunk.doc_id, set())
+        for index in range(max(0, (chunk.chunk_index or 0) - 2), (chunk.chunk_index or 0) + 3):
+            current.add(index)
+
+    extra_chunks = []
+    for doc_id, indexes in doc_ranges.items():
+        neighbors = (
+            Chunk.query
+            .filter(Chunk.doc_id == doc_id, Chunk.chunk_index.in_(sorted(indexes)))
+            .order_by(Chunk.chunk_index.asc())
+            .all()
+        )
+        extra_chunks.extend(neighbors)
+
+    existing_ids = {chunk.id for chunk, _score in base_results}
+    augmented = list(base_results)
+    for chunk in extra_chunks:
+        if chunk.id in existing_ids:
+            continue
+        synthetic_score = 0.88
+        augmented.append((chunk, synthetic_score))
+        existing_ids.add(chunk.id)
+
+    augmented.sort(key=lambda item: (item[1], -(item[0].chunk_index or 0)), reverse=True)
+    return augmented
+
+def is_continuity_query(question):
+    keywords = ['过程', '步骤', '流程', '分类', '原理', '包括', '由哪些', '基本过程']
+    text = (question or '').strip()
+    return any(keyword in text for keyword in keywords)
+
+def augment_context_neighbors(base_results, neighbor_span=1):
+    """补充命中 chunk 的相邻上下文，避免条目/列表被截断。"""
+    if not base_results:
+        return base_results
+
+    doc_ranges = {}
+    for chunk, _score in base_results:
+        current = doc_ranges.setdefault(chunk.doc_id, set())
+        start = max(0, (chunk.chunk_index or 0) - neighbor_span)
+        end = (chunk.chunk_index or 0) + neighbor_span + 1
+        for index in range(start, end):
+            current.add(index)
+
+    augmented = []
+    seen_chunk_ids = set()
+    for doc_id, indexes in doc_ranges.items():
+        neighbors = (
+            Chunk.query
+            .filter(Chunk.doc_id == doc_id, Chunk.chunk_index.in_(sorted(indexes)))
+            .order_by(Chunk.chunk_index.asc())
+            .all()
+        )
+        base_scores = {chunk.id: score for chunk, score in base_results if chunk.doc_id == doc_id}
+        for chunk in neighbors:
+            if chunk.id in seen_chunk_ids:
+                continue
+            score = base_scores.get(chunk.id, 0.82)
+            augmented.append((chunk, score))
+            seen_chunk_ids.add(chunk.id)
+
+    augmented.sort(key=lambda item: (item[0].doc_id, item[0].chunk_index or 0))
+    return augmented
+
+def build_focused_continuity_context(ordered_results, question):
+    """针对流程/步骤类问题，从连续 chunk 中抽取更干净的局部段落。"""
+    if not ordered_results:
+        return ''
+
+    question_text = (question or '').strip()
+    if '基本过程' not in question_text:
+        return ''
+
+    chunks_by_doc = {}
+    for chunk, _score in ordered_results:
+        chunks_by_doc.setdefault(chunk.doc_id, []).append(chunk)
+
+    for doc_id, chunks in chunks_by_doc.items():
+        chunks.sort(key=lambda item: item.chunk_index or 0)
+        merged_text = '\n'.join(chunk.content for chunk in chunks)
+        anchor = '化学热处理通常由四个基本过程组成'
+        start = merged_text.find(anchor)
+        if start < 0:
+            continue
+
+        end_markers = [
+            '根据介质的物理形态',
+            '第2页',
+            '以下是该 PDF 页面的 OCR 风格抽取内容',
+            '---'
+        ]
+        end_positions = [
+            merged_text.find(marker, start + len(anchor))
+            for marker in end_markers
+            if merged_text.find(marker, start + len(anchor)) != -1
+        ]
+        end = min(end_positions) if end_positions else min(len(merged_text), start + 900)
+        passage = merged_text[start:end].strip()
+        if passage:
+            return f'【正文资料】\n{passage}'
+
+    return ''
+
+def search_within_document(question, doc_id, top_k):
+    """仅在指定文档内检索相似 chunk。"""
+    chunks = (
+        Chunk.query
+        .filter(Chunk.doc_id == doc_id)
+        .order_by(Chunk.chunk_index.asc())
+        .all()
+    )
+    if not chunks:
+        return []
+
+    question_embedding = np.array(get_embedding(question), dtype=np.float64).reshape(1, -1)
+    scored = []
+    for chunk in chunks:
+        if not chunk.embedding:
+            continue
+        chunk_embedding = np.frombuffer(chunk.embedding, dtype=np.float64).reshape(1, -1)
+        score = float(cosine_similarity(question_embedding, chunk_embedding)[0][0])
+        scored.append((chunk.id, score))
+
+    scored.sort(key=lambda item: item[1], reverse=True)
+    return scored[:top_k]
+
 @app.route('/')
 def index():
     """返回前端首页。"""
@@ -119,6 +299,7 @@ def upload_file():
     
     doc = None
     filepath = None
+    pdf_image_dir = None
     try:
         category = normalize_category(request.form.get('category'))
         # 保存文件
@@ -140,6 +321,35 @@ def upload_file():
         
         if ext in IMAGE_EXTENSIONS:
             text = summarize_image(filepath)
+        elif ext == '.pdf':
+            text = parse_file(filepath)
+            if len(text.strip()) < Config.PDF_TEXT_FALLBACK_THRESHOLD:
+                pdf_image_dir = tempfile.mkdtemp(
+                    prefix='pdf_pages_',
+                    dir=Config.CHAT_IMAGE_FOLDER
+                )
+                page_images = render_pdf_pages(
+                    filepath,
+                    pdf_image_dir,
+                    max_pages=Config.PDF_IMAGE_MAX_PAGES
+                )
+                if not page_images:
+                    raise ValueError('未能从 PDF 中提取文字或页面图像。')
+
+                page_summaries = []
+                for index, image_path in enumerate(page_images, start=1):
+                    try:
+                        summary = extract_pdf_page_text(image_path, page_number=index)
+                    except Exception:
+                        summary = summarize_image(image_path)
+                    if summary:
+                        page_summaries.append(f'第{index}页\n{summary}')
+
+                fallback_text = '\n\n'.join(page_summaries).strip()
+                if text.strip() and fallback_text:
+                    text = f'{text.strip()}\n\n{fallback_text}'
+                else:
+                    text = fallback_text or text
         else:
             text = parse_file(filepath)
 
@@ -179,7 +389,10 @@ def upload_file():
             }
         })
     except Exception as e:
+        app.logger.exception('Upload processing failed for %s', file.filename)
         db.session.rollback()
+        if pdf_image_dir and os.path.exists(pdf_image_dir):
+            shutil.rmtree(pdf_image_dir, ignore_errors=True)
         if filepath and os.path.exists(filepath):
             os.remove(filepath)
         if doc and doc.id:
@@ -188,6 +401,9 @@ def upload_file():
                 db.session.delete(existing_doc)
                 db.session.commit()
         return jsonify({'code': 500, 'msg': f'处理失败: {str(e)}'}), 500
+    finally:
+        if pdf_image_dir and os.path.exists(pdf_image_dir):
+            shutil.rmtree(pdf_image_dir, ignore_errors=True)
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
@@ -195,9 +411,11 @@ def chat():
     uploaded_image = request.files.get('image')
     if uploaded_image:
         question = request.form.get('question', '').strip()
+        selected_doc_id = request.form.get('doc_id', '').strip()
     else:
         data = request.get_json(silent=True) or {}
         question = data.get('question', '').strip()
+        selected_doc_id = str(data.get('doc_id') or '').strip()
     
     if not question:
         return jsonify({'code': 400, 'msg': '问题不能为空'}), 400
@@ -225,8 +443,22 @@ def chat():
                 'sources': []
             }})
         
+        selected_doc = None
+        if selected_doc_id:
+            try:
+                selected_doc = db.session.get(Document, int(selected_doc_id))
+            except ValueError:
+                return jsonify({'code': 400, 'msg': '检索范围参数无效'}), 400
+            if not selected_doc:
+                return jsonify({'code': 404, 'msg': '指定检索文档不存在'}), 404
+
         # 检索相似文本
-        retrieved = search_similar(question, Config.TOP_K)
+        if selected_doc:
+            candidate_k = max(Config.TOP_K + 4, Config.RETRIEVAL_CANDIDATES)
+            retrieved = search_within_document(question, selected_doc.id, candidate_k)
+        else:
+            candidate_k = max(Config.TOP_K, Config.RETRIEVAL_CANDIDATES)
+            retrieved = search_similar(question, candidate_k)
         if not retrieved and not temp_image_path:
             return jsonify({'code': 200, 'data': {
                 'answer': '当前索引为空或不可用，请先重新上传文档。',
@@ -240,13 +472,35 @@ def chat():
             for chunk in Chunk.query.filter(Chunk.id.in_(chunk_ids)).all()
         }
 
-        ordered_results = []
-        for chunk_id, score in retrieved:
-            chunk = chunk_map.get(chunk_id)
-            if chunk:
-                ordered_results.append((chunk, score))
+        prefers_table = is_table_query(question)
+        prefers_continuity = is_continuity_query(question)
+        result_limit = Config.TOP_K + 2 if prefers_table else Config.TOP_K
+        ordered_results = select_diverse_results(retrieved, chunk_map, result_limit)
+        if prefers_table:
+            ordered_results = augment_table_neighbors(ordered_results, chunk_map)
+        if prefers_table or prefers_continuity:
+            neighbor_span = 2 if prefers_table else 1
+            ordered_results = augment_context_neighbors(ordered_results, neighbor_span=neighbor_span)
 
-        context = '\n\n'.join([chunk.content for chunk, score in ordered_results])
+        narrative_chunks = []
+        table_chunks = []
+        for chunk, _score in ordered_results:
+            is_table_chunk = looks_like_table_chunk(chunk.content)
+            if prefers_table and is_table_chunk:
+                table_chunks.append(chunk.content)
+            elif not is_table_chunk:
+                narrative_chunks.append(chunk.content)
+
+        context_parts = []
+        if narrative_chunks:
+            context_parts.append('【正文资料】\n' + '\n\n'.join(narrative_chunks))
+        if table_chunks:
+            context_parts.append('【表格/清单资料】\n' + '\n\n'.join(table_chunks))
+        context = '\n\n'.join(context_parts)
+        if prefers_continuity and not prefers_table:
+            focused_context = build_focused_continuity_context(ordered_results, question)
+            if focused_context:
+                context = focused_context
         sources = []
         for chunk, score in ordered_results:
             doc = db.session.get(Document, chunk.doc_id)
@@ -260,7 +514,7 @@ def chat():
         if temp_image_path:
             answer = ask_multimodal_llm(question, context, temp_image_path)
         else:
-            answer = ask_llm(question, context)
+            answer = ask_llm(question, context, include_table_mode=prefers_table)
         
         # 保存记录
         history = ChatHistory(

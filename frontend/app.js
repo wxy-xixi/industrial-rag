@@ -7,6 +7,8 @@ const fileInput = document.getElementById('fileInput');
 const categorySelect = document.getElementById('categorySelect');
 const docFilter = document.getElementById('docFilter');
 const docSearch = document.getElementById('docSearch');
+const queryDocSelect = document.getElementById('queryDocSelect');
+const queryScopeIndicator = document.getElementById('queryScopeIndicator');
 let currentDocuments = [];
 
 uploadBox.addEventListener('click', () => fileInput.click());
@@ -92,6 +94,10 @@ docSearch.addEventListener('input', () => {
     renderDocuments(currentDocuments);
 });
 
+queryDocSelect.addEventListener('change', () => {
+    updateQueryScopeIndicator();
+});
+
 // ==================== 文档列表 ====================
 function loadDocuments() {
     fetch(`${API}/documents`)
@@ -99,9 +105,52 @@ function loadDocuments() {
     .then(data => {
         const docs = data.data || [];
         currentDocuments = docs;
+        updateQueryDocOptions(docs);
         updateStats(docs);
         renderDocuments(docs);
     });
+}
+
+function updateQueryDocOptions(docs) {
+    const previousValue = queryDocSelect.value;
+    queryDocSelect.replaceChildren();
+
+    const defaultOption = document.createElement('option');
+    defaultOption.value = '';
+    defaultOption.textContent = '全知识库';
+    queryDocSelect.appendChild(defaultOption);
+
+    docs.forEach((doc) => {
+        const option = document.createElement('option');
+        option.value = String(doc.id);
+        option.textContent = `${doc.filename} · ${doc.file_type.toUpperCase()}`;
+        queryDocSelect.appendChild(option);
+    });
+
+    if (docs.some((doc) => String(doc.id) === previousValue)) {
+        queryDocSelect.value = previousValue;
+    }
+
+    updateQueryScopeIndicator();
+}
+
+function updateQueryScopeIndicator() {
+    const selectedDocId = queryDocSelect.value;
+    if (!selectedDocId) {
+        queryScopeIndicator.hidden = true;
+        queryScopeIndicator.textContent = '';
+        return;
+    }
+
+    const selectedDoc = currentDocuments.find((doc) => String(doc.id) === selectedDocId);
+    if (!selectedDoc) {
+        queryScopeIndicator.hidden = true;
+        queryScopeIndicator.textContent = '';
+        return;
+    }
+
+    queryScopeIndicator.hidden = false;
+    queryScopeIndicator.textContent = `当前仅检索：${selectedDoc.filename}`;
 }
 
 function renderDocuments(docs) {
@@ -382,14 +431,21 @@ function sendQuestion() {
     sendBtn.disabled = true;
 
     const options = { method: 'POST' };
+    const selectedDocId = queryDocSelect.value;
     if (attachedImage) {
         const formData = new FormData();
         formData.append('question', question);
+        if (selectedDocId) {
+            formData.append('doc_id', selectedDocId);
+        }
         formData.append('image', attachedImage);
         options.body = formData;
     } else {
         options.headers = { 'Content-Type': 'application/json' };
-        options.body = JSON.stringify({ question });
+        options.body = JSON.stringify({
+            question,
+            doc_id: selectedDocId || null
+        });
     }
 
     fetch(`${API}/chat`, options)
@@ -428,7 +484,7 @@ function appendMessage(role, content, sources) {
 
     const contentBlock = document.createElement('div');
     contentBlock.className = 'message-content';
-    contentBlock.textContent = content;
+    contentBlock.textContent = normalizeMessageContent(content);
     bubble.appendChild(contentBlock);
 
     if (sources && sources.length > 0) {
@@ -467,6 +523,13 @@ function appendMessage(role, content, sources) {
     div.appendChild(bubble);
     chatMessages.appendChild(div);
     chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function normalizeMessageContent(content) {
+    return String(content || '')
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
 }
 
 function appendLoading(id) {
