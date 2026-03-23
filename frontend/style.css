@@ -948,15 +948,47 @@ body.modal-open {
 }
 
 .source-item {
+    display: block;
+    width: 100%;
     padding: 10px 0;
     border-bottom: 1px dashed rgba(135, 176, 219, 0.12);
+    border-left: 0;
+    border-right: 0;
+    border-top: 0;
+    background: transparent;
     color: var(--muted);
     font-size: 0.78rem;
     line-height: 1.7;
+    text-align: left;
+    cursor: pointer;
+    transition: color 0.2s ease, transform 0.2s ease;
 }
 
 .source-item:last-child {
     border-bottom: none;
+}
+
+.source-item:hover,
+.source-item:focus-visible {
+    color: var(--text);
+    transform: translateX(3px);
+    outline: none;
+}
+
+.source-modal-panel {
+    width: min(820px, 100%);
+}
+
+.source-modal-content {
+    max-height: 46vh;
+    overflow-y: auto;
+    color: rgba(228, 238, 255, 0.92);
+}
+
+.source-modal-actions {
+    margin-top: 18px;
+    display: flex;
+    justify-content: flex-end;
 }
 
 .loading-dots span {

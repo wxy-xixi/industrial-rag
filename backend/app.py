@@ -3,6 +3,7 @@ import shutil
 import tempfile
 import re
 import numpy as np
+import PyPDF2
 from sklearn.metrics.pairwise import cosine_similarity
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
@@ -213,11 +214,11 @@ def augment_context_neighbors(base_results, neighbor_span=1):
 def build_focused_continuity_context(ordered_results, question):
     """针对流程/步骤类问题，从连续 chunk 中抽取更干净的局部段落。"""
     if not ordered_results:
-        return ''
+        return '', None
 
     question_text = (question or '').strip()
     if '基本过程' not in question_text:
-        return ''
+        return '', None
 
     chunks_by_doc = {}
     for chunk, _score in ordered_results:
@@ -245,9 +246,9 @@ def build_focused_continuity_context(ordered_results, question):
         end = min(end_positions) if end_positions else min(len(merged_text), start + 900)
         passage = merged_text[start:end].strip()
         if passage:
-            return f'【正文资料】\n{passage}'
+            return f'【正文资料】\n{passage}', doc_id
 
-    return ''
+    return '', None
 
 def build_process_answer_from_context(question, focused_context):
     """对“基本过程组成”类问题做规则化抽取，避免模型漏项。"""
@@ -318,6 +319,51 @@ def search_within_document(question, doc_id, top_k):
 
     scored.sort(key=lambda item: item[1], reverse=True)
     return scored[:top_k]
+
+def normalize_locator_text(text):
+    return re.sub(r'\s+', '', (text or '')).lower()
+
+def locate_pdf_chunk_page(file_path, chunk_content):
+    """根据 chunk 内容粗略定位 PDF 页码。"""
+    if not os.path.exists(file_path):
+        return None
+
+    target = normalize_locator_text(chunk_content)
+    if not target:
+        return None
+
+    fragments = [
+        fragment.strip()
+        for fragment in re.split(r'[。！？；\n|]+', chunk_content)
+        if len(normalize_locator_text(fragment)) >= 8
+    ]
+    fragments = fragments[:6]
+
+    best_page = None
+    best_score = -1
+
+    with open(file_path, 'rb') as pdf_file:
+        reader = PyPDF2.PdfReader(pdf_file)
+        for index, page in enumerate(reader.pages):
+            page_text = normalize_locator_text(page.extract_text() or '')
+            if not page_text:
+                continue
+
+            score = 0
+            for fragment in fragments:
+                normalized_fragment = normalize_locator_text(fragment)
+                if normalized_fragment and normalized_fragment in page_text:
+                    score += len(normalized_fragment)
+
+            if score == 0:
+                common_prefix = os.path.commonprefix([target[:120], page_text])
+                score = len(common_prefix)
+
+            if score > best_score:
+                best_score = score
+                best_page = index + 1
+
+    return best_page if best_score > 0 else None
 
 @app.route('/')
 def index():
@@ -546,16 +592,32 @@ def chat():
             context_parts.append('【表格/清单资料】\n' + '\n\n'.join(table_chunks))
         context = '\n\n'.join(context_parts)
         focused_context = ''
+        focused_doc_id = None
         if prefers_continuity and not prefers_table:
-            focused_context = build_focused_continuity_context(ordered_results, question)
+            focused_context, focused_doc_id = build_focused_continuity_context(ordered_results, question)
             if focused_context:
                 context = focused_context
+        source_results = ordered_results
+        if focused_doc_id:
+            focused_doc_results = [
+                (chunk, score)
+                for chunk, score in ordered_results
+                if chunk.doc_id == focused_doc_id
+            ]
+            if focused_doc_results:
+                source_results = focused_doc_results
+
         sources = []
-        for chunk, score in ordered_results:
+        for chunk, score in source_results:
             doc = db.session.get(Document, chunk.doc_id)
             sources.append({
+                'doc_id': chunk.doc_id,
+                'chunk_id': chunk.id,
+                'chunk_index': chunk.chunk_index,
                 'filename': doc.filename if doc else '未知',
+                'file_type': doc.file_type if doc else '',
                 'content': chunk.content[:100] + '...',
+                'full_content': chunk.content,
                 'score': round(float(score), 4)
             })
         
@@ -606,6 +668,50 @@ def get_documents():
             'status': doc.status
         })
     return jsonify({'code': 200, 'data': data})
+
+@app.route('/api/documents/<int:doc_id>/file', methods=['GET'])
+def open_document_file(doc_id):
+    """提供已上传原文件访问。"""
+    doc = db.session.get(Document, doc_id)
+    if not doc:
+        return jsonify({'code': 404, 'msg': '文档不存在'}), 404
+
+    file_path = os.path.join(Config.UPLOAD_FOLDER, doc.filename)
+    if not os.path.exists(file_path):
+        return jsonify({'code': 404, 'msg': '原文件不存在'}), 404
+
+    return send_from_directory(Config.UPLOAD_FOLDER, doc.filename, as_attachment=False)
+
+@app.route('/api/documents/<int:doc_id>/locate/<int:chunk_id>', methods=['GET'])
+def locate_document_chunk(doc_id, chunk_id):
+    """定位来源 chunk 在原文件中的大致位置。"""
+    doc = db.session.get(Document, doc_id)
+    if not doc:
+        return jsonify({'code': 404, 'msg': '文档不存在'}), 404
+
+    chunk = db.session.get(Chunk, chunk_id)
+    if not chunk or chunk.doc_id != doc_id:
+        return jsonify({'code': 404, 'msg': '来源片段不存在'}), 404
+
+    file_path = os.path.join(Config.UPLOAD_FOLDER, doc.filename)
+    if not os.path.exists(file_path):
+        return jsonify({'code': 404, 'msg': '原文件不存在'}), 404
+
+    page = None
+    if (doc.file_type or '').lower() == 'pdf':
+        page = locate_pdf_chunk_page(file_path, chunk.content)
+
+    return jsonify({
+        'code': 200,
+        'data': {
+            'doc_id': doc_id,
+            'chunk_id': chunk_id,
+            'filename': doc.filename,
+            'file_type': doc.file_type,
+            'chunk_index': chunk.chunk_index,
+            'page': page
+        }
+    })
 
 @app.route('/api/documents/<int:doc_id>/category', methods=['PATCH'])
 def update_document_category(doc_id):

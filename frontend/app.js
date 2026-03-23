@@ -378,6 +378,13 @@ const historyModalClose = document.getElementById('historyModalClose');
 const historyModalTime = document.getElementById('historyModalTime');
 const historyModalQuestion = document.getElementById('historyModalQuestion');
 const historyModalAnswer = document.getElementById('historyModalAnswer');
+const sourceModal = document.getElementById('sourceModal');
+const sourceModalBackdrop = document.getElementById('sourceModalBackdrop');
+const sourceModalClose = document.getElementById('sourceModalClose');
+const sourceModalMeta = document.getElementById('sourceModalMeta');
+const sourceModalContent = document.getElementById('sourceModalContent');
+const sourceModalOpenBtn = document.getElementById('sourceModalOpenBtn');
+let activeSourceRecord = null;
 
 attachBtn.addEventListener('click', () => chatImageInput.click());
 chatImageInput.addEventListener('change', () => {
@@ -390,10 +397,23 @@ chatImageInput.addEventListener('change', () => {
 
 historyModalClose.addEventListener('click', closeHistoryModal);
 historyModalBackdrop.addEventListener('click', closeHistoryModal);
+sourceModalClose.addEventListener('click', closeSourceModal);
+sourceModalBackdrop.addEventListener('click', closeSourceModal);
 document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && !historyModal.hidden) {
         closeHistoryModal();
     }
+    if (event.key === 'Escape' && !sourceModal.hidden) {
+        closeSourceModal();
+    }
+});
+
+sourceModalOpenBtn.addEventListener('click', () => {
+    if (!activeSourceRecord) {
+        return;
+    }
+    const url = buildSourceOpenUrl(activeSourceRecord);
+    window.open(url, '_blank', 'noopener');
 });
 
 // 回车发送
@@ -498,8 +518,10 @@ function appendMessage(role, content, sources) {
         details.appendChild(summary);
 
         sources.forEach((source) => {
-            const item = document.createElement('div');
+            const item = document.createElement('button');
             item.className = 'source-item';
+            item.type = 'button';
+            item.addEventListener('click', () => openSourceModal(source));
 
             const title = document.createElement('strong');
             title.textContent = source.filename;
@@ -563,7 +585,58 @@ function openHistoryModal(record) {
 
 function closeHistoryModal() {
     historyModal.hidden = true;
-    document.body.classList.remove('modal-open');
+    if (sourceModal.hidden) {
+        document.body.classList.remove('modal-open');
+    }
+}
+
+async function openSourceModal(source) {
+    activeSourceRecord = source;
+    sourceModalMeta.textContent = `${source.filename || '未知文件'} · ${String(source.file_type || '').toUpperCase()} · 分块 ${Number(source.chunk_index || 0) + 1} · 相似度 ${source.score}`;
+    sourceModalContent.textContent = normalizeMessageContent(source.full_content || source.content || '');
+    sourceModal.hidden = false;
+    document.body.classList.add('modal-open');
+    sourceModalOpenBtn.textContent = '打开原文件';
+
+    if ((source.file_type || '').toLowerCase() === 'pdf' && source.doc_id && source.chunk_id) {
+        try {
+            const response = await fetch(`${API}/documents/${source.doc_id}/locate/${source.chunk_id}`);
+            const data = await response.json();
+            if (data.code === 200 && data.data && data.data.page) {
+                activeSourceRecord.page = data.data.page;
+                sourceModalMeta.textContent = `${source.filename || '未知文件'} · PDF · 第 ${data.data.page} 页 · 分块 ${Number(source.chunk_index || 0) + 1} · 相似度 ${source.score}`;
+                sourceModalOpenBtn.textContent = `打开原文件（第 ${data.data.page} 页）`;
+            }
+        } catch (_error) {
+            // 页码定位失败时退回原文件打开，不影响使用
+        }
+    }
+}
+
+function closeSourceModal() {
+    sourceModal.hidden = true;
+    activeSourceRecord = null;
+    if (historyModal.hidden) {
+        document.body.classList.remove('modal-open');
+    }
+}
+
+function buildSourceOpenUrl(source) {
+    const baseUrl = `${API}/documents/${source.doc_id}/file`;
+    if ((source.file_type || '').toLowerCase() !== 'pdf') {
+        return baseUrl;
+    }
+
+    if (source.page) {
+        return `${baseUrl}#page=${source.page}`;
+    }
+
+    const excerpt = normalizeMessageContent(source.full_content || source.content || '');
+    const searchText = excerpt.replace(/\s+/g, ' ').trim().slice(0, 32);
+    if (!searchText) {
+        return baseUrl;
+    }
+    return `${baseUrl}#search=${encodeURIComponent(searchText)}`;
 }
 
 function loadHistory() {
